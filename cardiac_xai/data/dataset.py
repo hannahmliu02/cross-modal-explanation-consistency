@@ -18,10 +18,39 @@ from typing import Literal
 import numpy as np
 import torch
 from torch.utils.data import Dataset, DataLoader
+from monai.transforms import (
+    Compose,
+    RandFlipd,
+    RandRotate90d,
+    RandAffined,
+    RandGaussianNoised,
+    RandScaleIntensityd,
+    RandShiftIntensityd,
+)
 
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from config import DATA_PACK
+
+
+TRAIN_AUGMENTATIONS = Compose([
+    RandFlipd(keys=["image", "label"], prob=0.5, spatial_axis=0),
+    RandFlipd(keys=["image", "label"], prob=0.5, spatial_axis=1),
+    RandRotate90d(keys=["image", "label"], prob=0.5),
+    RandAffined(
+        keys=["image", "label"],
+        prob=0.5,
+        rotate_range=(0.2,),
+        shear_range=(0.05,),
+        translate_range=(10,),
+        scale_range=(0.1,),
+        mode=("bilinear", "nearest"),
+        padding_mode="zeros",
+    ),
+    RandGaussianNoised(keys=["image"], prob=0.3, std=0.02),
+    RandScaleIntensityd(keys=["image"], factors=0.15, prob=0.3),
+    RandShiftIntensityd(keys=["image"], offsets=0.1, prob=0.3),
+])
 
 
 _FNAME_RE = re.compile(r"(ct|mr)_(\d+)_slice_(\d+)\.npz")
@@ -51,7 +80,9 @@ class CardiacSliceDataset(Dataset):
         data_dir: Path = DATA_PACK,
         modality: Literal["ct", "mr", "both"] = "both",
         split: Literal["train", "val", "test"] = "train",
+        augment: bool = False,
     ):
+        self.augment = augment
         self.samples = []
         data_dir = Path(data_dir)
         modalities = ["ct", "mr"] if modality == "both" else [modality]
@@ -79,9 +110,17 @@ class CardiacSliceDataset(Dataset):
         d = np.load(s["path"])
         image = d["image"].astype(np.float32)   # (H, W)
         label = d["label"].astype(np.int64)     # (H, W)
-        return {
+
+        sample = {
             "image": torch.from_numpy(image).unsqueeze(0),  # (1, H, W)
             "label": torch.from_numpy(label),               # (H, W)
+        }
+
+        if self.augment:
+            sample = TRAIN_AUGMENTATIONS(sample)
+
+        return {
+            **sample,
             "modality": s["modality"],
             "volume": s["volume"],
             "slice": s["slice"],
@@ -93,8 +132,8 @@ def build_dataloaders(
     batch_size: int = 16,
     num_workers: int = 4,
 ):
-    train_ds = CardiacSliceDataset(data_dir, modality="both", split="train")
-    val_ds   = CardiacSliceDataset(data_dir, modality="both", split="val")
+    train_ds = CardiacSliceDataset(data_dir, modality="both", split="train", augment=True)
+    val_ds   = CardiacSliceDataset(data_dir, modality="both", split="val",   augment=False)
     print(f"Train samples: {len(train_ds)}  Val samples: {len(val_ds)}")
     train_dl = DataLoader(
         train_ds, batch_size=batch_size, shuffle=True,

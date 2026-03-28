@@ -30,6 +30,7 @@ LR = 1e-4
 WEIGHT_DECAY = 1e-5
 EPOCHS = 100
 T_MAX = 100
+PATIENCE = 15
 
 IG_STEPS = 50
 SMOOTHGRAD_SAMPLES = 50
@@ -49,5 +50,6 @@ def get_parser(description=""):
     parser.add_argument("--batch-size", type=int, default=BATCH_SIZE)
     parser.add_argument("--lr", type=float, default=LR)
     parser.add_argument("--weight-decay", type=float, default=WEIGHT_DECAY)
+    parser.add_argument("--patience", type=int, default=PATIENCE)
     parser.add_argument("--device", type=str, default="mps")
     return parser

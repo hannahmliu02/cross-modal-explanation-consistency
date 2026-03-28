@@ -9,10 +9,7 @@ Usage:
 import sys
 from pathlib import Path
 
-import csv
-
 import torch
-import matplotlib.pyplot as plt
 from monai.losses import DiceCELoss
 from monai.metrics import DiceMetric
 from monai.utils import set_determinism
@@ -98,18 +95,9 @@ def main():
     args.checkpoints_dir.mkdir(parents=True, exist_ok=True)
     args.results_dir.mkdir(parents=True, exist_ok=True)
     best_dice = 0.0
+    patience_counter = 0
 
     structure_names = list(LABEL_MAP.values())[1:]  # excl. background
-    csv_path = args.results_dir / "training_log.csv"
-    csv_fields = (
-        ["epoch", "train_loss", "train_dice", "val_loss", "val_dice"]
-        + [f"val_dice_{n}" for n in structure_names]
-    )
-    csv_file = open(csv_path, "w", newline="")
-    writer = csv.DictWriter(csv_file, fieldnames=csv_fields)
-    writer.writeheader()
-
-    history = {"epoch": [], "train_dice": [], "val_dice": []}
 
     for epoch in range(1, args.epochs + 1):
         train_loss, train_dice, train_per_class = run_epoch(
@@ -126,13 +114,13 @@ def main():
             f"val loss {val_loss:.4f} dice {val_dice:.4f}"
         )
         col_w = 14
-        headers = [f"{'structure':<20}"] + [f"{'val_dice':>{col_w}}"]
-        print("  " + "  ".join(headers))
-        for name, d in zip(list(LABEL_MAP.values())[1:], val_per_class):
+        print(f"  {'structure':<20}  {'val_dice':>{col_w}}")
+        for name, d in zip(structure_names, val_per_class):
             print(f"  {name:<20}  {d:>{col_w}.4f}")
 
         if val_dice > best_dice:
             best_dice = val_dice
+            patience_counter = 0
             ckpt_path = args.checkpoints_dir / "best_model.pth"
             torch.save(
                 {
@@ -145,6 +133,12 @@ def main():
                 ckpt_path,
             )
             print(f"  -> Saved best model (val dice {best_dice:.4f}) to {ckpt_path}")
+        else:
+            patience_counter += 1
+            print(f"  [patience {patience_counter}/{args.patience}]")
+            if patience_counter >= args.patience:
+                print(f"  Early stopping at epoch {epoch}.")
+                break
 
     print(f"\nTraining complete. Best val dice: {best_dice:.4f}")
 
