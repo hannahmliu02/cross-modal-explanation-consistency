@@ -1,0 +1,1 @@
+epoch,train_loss,train_dice,val_loss,val_dice,val_dice_left_ventricle,val_dice_right_ventricle,val_dice_left_atrium,val_dice_right_atrium,val_dice_myocardium,val_dice_aorta,val_dice_pulmonary_artery
