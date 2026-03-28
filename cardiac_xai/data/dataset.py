@@ -40,6 +40,7 @@ TRAIN_AUGMENTATIONS = Compose([
     RandAffined(
         keys=["image", "label"],
         prob=0.5,
+        spatial_dims=2,
         rotate_range=(0.2,),
         shear_range=(0.05,),
         translate_range=(10,),
@@ -130,18 +131,17 @@ class CardiacSliceDataset(Dataset):
 def build_dataloaders(
     data_dir: Path = DATA_PACK,
     batch_size: int = 16,
-    num_workers: int = 4,
 ):
     train_ds = CardiacSliceDataset(data_dir, modality="both", split="train", augment=True)
     val_ds   = CardiacSliceDataset(data_dir, modality="both", split="val",   augment=False)
     print(f"Train samples: {len(train_ds)}  Val samples: {len(val_ds)}")
     train_dl = DataLoader(
         train_ds, batch_size=batch_size, shuffle=True,
-        num_workers=num_workers, pin_memory=True, drop_last=True,
+        num_workers=0, pin_memory=False, drop_last=True,
     )
     val_dl = DataLoader(
         val_ds, batch_size=batch_size, shuffle=False,
-        num_workers=num_workers, pin_memory=True,
+        num_workers=0, pin_memory=False,
     )
     return train_dl, val_dl
 
