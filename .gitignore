@@ -1,0 +1,6 @@
+cardiac_xai/results/
+cardiac_xai/models/checkpoints/
+cardiac_xai/data/pack/
+__pycache__/
+**/__pycache__/
+*.pyc

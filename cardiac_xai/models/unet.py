@@ -38,6 +38,7 @@ class SharedEncoderUNet(nn.Module):
             channels=(32, 64, 128, 256, 512),
             strides=(2, 2, 2, 2),
             num_res_units=2,
+            dropout=0.2,
         )
         # Expose the last encoder layer for Grad-CAM hooking.
         # In MONAI's UNet the encoder is self.model.model[0] (a sequential

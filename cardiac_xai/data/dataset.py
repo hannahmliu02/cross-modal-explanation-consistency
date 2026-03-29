@@ -22,7 +22,6 @@ from monai.transforms import (
     Compose,
     RandFlipd,
     RandRotate90d,
-    RandAffined,
     RandGaussianNoised,
     RandScaleIntensityd,
     RandShiftIntensityd,
@@ -33,21 +32,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from config import DATA_PACK
 
 
+# Label must be (1, H, W) when passed to these transforms — squeezed back after.
 TRAIN_AUGMENTATIONS = Compose([
     RandFlipd(keys=["image", "label"], prob=0.5, spatial_axis=0),
     RandFlipd(keys=["image", "label"], prob=0.5, spatial_axis=1),
-    RandRotate90d(keys=["image", "label"], prob=0.5),
-    RandAffined(
-        keys=["image", "label"],
-        prob=0.5,
-        spatial_dims=2,
-        rotate_range=(0.2,),
-        shear_range=(0.05,),
-        translate_range=(10,),
-        scale_range=(0.1,),
-        mode=("bilinear", "nearest"),
-        padding_mode="zeros",
-    ),
+    RandRotate90d(keys=["image", "label"], prob=0.5, spatial_axes=(0, 1)),
     RandGaussianNoised(keys=["image"], prob=0.3, std=0.02),
     RandScaleIntensityd(keys=["image"], factors=0.15, prob=0.3),
     RandShiftIntensityd(keys=["image"], offsets=0.1, prob=0.3),
@@ -112,16 +101,17 @@ class CardiacSliceDataset(Dataset):
         image = d["image"].astype(np.float32)   # (H, W)
         label = d["label"].astype(np.int64)     # (H, W)
 
-        sample = {
-            "image": torch.from_numpy(image).unsqueeze(0),  # (1, H, W)
-            "label": torch.from_numpy(label),               # (H, W)
-        }
+        image_t = torch.from_numpy(image).unsqueeze(0)  # (1, H, W)
+        label_t = torch.from_numpy(label).unsqueeze(0)  # (1, H, W) — channel needed by MONAI
 
         if self.augment:
-            sample = TRAIN_AUGMENTATIONS(sample)
+            sample = TRAIN_AUGMENTATIONS({"image": image_t, "label": label_t})
+            image_t = sample["image"]
+            label_t = sample["label"]
 
         return {
-            **sample,
+            "image": image_t,                    # (1, H, W)
+            "label": label_t.squeeze(0).long(),  # (H, W)
             "modality": s["modality"],
             "volume": s["volume"],
             "slice": s["slice"],

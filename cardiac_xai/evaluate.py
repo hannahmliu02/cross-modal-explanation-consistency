@@ -30,12 +30,12 @@ def one_hot(label: torch.Tensor, num_classes: int) -> torch.Tensor:
 
 
 def evaluate_modality(model, dataset, device, batch_size=16):
-    loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=4)
+    loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=0)
     dice_metric = DiceMetric(include_background=False, reduction="mean_batch")
     model.eval()
 
     with torch.no_grad():
-        for batch in tqdm(loader, desc=f"  eval {dataset.modality}", leave=False):
+        for batch in tqdm(loader, desc=f"  eval", leave=False):
             images = batch["image"].to(device)
             labels = batch["label"].to(device)
             logits = model(images)
