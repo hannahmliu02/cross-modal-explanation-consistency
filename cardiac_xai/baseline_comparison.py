@@ -13,6 +13,7 @@ import json
 import sys
 from pathlib import Path
 
+import numpy as np
 import torch
 from monai.losses import DiceCELoss
 from monai.metrics import DiceMetric
@@ -38,7 +39,16 @@ def build_modality_unet():
         channels=(32, 64, 128, 256, 512),
         strides=(2, 2, 2, 2),
         num_res_units=2,
+        dropout=0.2,
     )
+
+
+def attach_gradcam_layer(net):
+    """Point GradCAM at the last encoder block, matching SharedEncoderUNet."""
+    encoder_layers = net.model[0]
+    # Use object.__setattr__ to avoid registering as a submodule
+    object.__setattr__(net, "gradcam_target_layer", list(encoder_layers.children())[-1])
+    return net
 
 
 def one_hot(label, num_classes):
@@ -48,11 +58,11 @@ def one_hot(label, num_classes):
     return oh
 
 
-def train_single_modality(modality, data_pack, epochs, lr, batch_size, device, ckpt_dir):
+def train_single_modality(modality, data_pack, epochs, lr, batch_size, device, ckpt_dir, patience=25):
     ds_train = CardiacSliceDataset(data_pack, modality=modality, split="train")
     ds_val   = CardiacSliceDataset(data_pack, modality=modality, split="val")
-    dl_train = DataLoader(ds_train, batch_size=batch_size, shuffle=True, num_workers=4)
-    dl_val   = DataLoader(ds_val, batch_size=batch_size, shuffle=False, num_workers=4)
+    dl_train = DataLoader(ds_train, batch_size=batch_size, shuffle=True, num_workers=0, pin_memory=False)
+    dl_val   = DataLoader(ds_val, batch_size=batch_size, shuffle=False, num_workers=0, pin_memory=False)
 
     model = build_modality_unet().to(device)
     loss_fn = DiceCELoss(to_onehot_y=False, softmax=True)
@@ -61,9 +71,11 @@ def train_single_modality(modality, data_pack, epochs, lr, batch_size, device, c
     dice_metric = DiceMetric(include_background=False, reduction="mean")
 
     best_dice = 0.0
+    patience_counter = 0
     ckpt_path = ckpt_dir / f"baseline_{modality}_best.pth"
     dice_metric_batch = DiceMetric(include_background=False, reduction="mean_batch")
     structure_names = list(LABEL_MAP.values())[1:]
+    training_log = []
 
     for epoch in range(1, epochs + 1):
         model.train()
@@ -96,18 +108,42 @@ def train_single_modality(modality, data_pack, epochs, lr, batch_size, device, c
 
         if val_dice > best_dice:
             best_dice = val_dice
+            patience_counter = 0
             torch.save({"model_state_dict": model.state_dict()}, ckpt_path)
+        else:
+            patience_counter += 1
 
-        print(f"  [{modality}] epoch {epoch:03d}  val dice {val_dice:.4f}")
+        log_entry = {"epoch": epoch, "val_dice": val_dice, "patience": patience_counter}
+        for name, d in zip(structure_names, per_class):
+            log_entry[name] = d
+        training_log.append(log_entry)
+
+        print(f"  [{modality}] epoch {epoch:03d}  val dice {val_dice:.4f}  patience {patience_counter}/{patience}")
         col_w = 14
         print(f"    {'structure':<20}  {'val_dice':>{col_w}}")
         for name, d in zip(structure_names, per_class):
             print(f"    {name:<20}  {d:>{col_w}.4f}")
 
+        if patience_counter >= patience:
+            print(f"  [{modality}] Early stopping at epoch {epoch}")
+            break
+
+    # Save training log
+    import csv
+    log_path = ckpt_dir.parent / "results" / f"baseline_{modality}_training_log.csv"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    if training_log:
+        with open(log_path, "w", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=training_log[0].keys())
+            writer.writeheader()
+            writer.writerows(training_log)
+        print(f"  [{modality}] Training log saved to {log_path}")
+
     # Reload best
     ckpt = torch.load(ckpt_path, map_location=device, weights_only=True)
     model.load_state_dict(ckpt["model_state_dict"])
     model.eval()
+    attach_gradcam_layer(model)
     print(f"  [{modality}] Best val dice: {best_dice:.4f}")
     return model
 
@@ -161,6 +197,8 @@ def main():
     parser = get_parser("Baseline comparison: separate MRI + CT models")
     parser.add_argument("--methods", nargs="+", default=["gradcam"],
                         help="Attribution methods for baseline comparison")
+    parser.add_argument("--skip-training", action="store_true",
+                        help="Load existing baseline checkpoints instead of retraining")
     args = parser.parse_args()
 
     if torch.cuda.is_available():
@@ -171,17 +209,31 @@ def main():
         device = torch.device("cpu")
     set_determinism(seed=42)
 
-    print("Training separate CT model...")
-    ct_model = train_single_modality(
-        "ct", args.data_pack, args.epochs, args.lr,
-        args.batch_size, device, args.checkpoints_dir
-    )
+    if args.skip_training:
+        ct_model = build_modality_unet().to(device)
+        mr_model = build_modality_unet().to(device)
+        for modality, model in [("ct", ct_model), ("mr", mr_model)]:
+            ckpt_path = args.checkpoints_dir / f"baseline_{modality}_best.pth"
+            if not ckpt_path.exists():
+                print(f"[error] Checkpoint not found: {ckpt_path}. Run without --skip-training first.")
+                sys.exit(1)
+            ckpt = torch.load(ckpt_path, map_location=device, weights_only=True)
+            model.load_state_dict(ckpt["model_state_dict"])
+            model.eval()
+            attach_gradcam_layer(model)
+            print(f"Loaded {modality} model from {ckpt_path}")
+    else:
+        print("Training separate CT model...")
+        ct_model = train_single_modality(
+            "ct", args.data_pack, args.epochs, args.lr,
+            args.batch_size, device, args.checkpoints_dir, patience=args.patience
+        )
 
-    print("Training separate MRI model...")
-    mr_model = train_single_modality(
-        "mr", args.data_pack, args.epochs, args.lr,
-        args.batch_size, device, args.checkpoints_dir
-    )
+        print("Training separate MRI model...")
+        mr_model = train_single_modality(
+            "mr", args.data_pack, args.epochs, args.lr,
+            args.batch_size, device, args.checkpoints_dir, patience=args.patience
+        )
 
     ct_val = CardiacSliceDataset(args.data_pack, modality="ct", split="val")
     mr_val = CardiacSliceDataset(args.data_pack, modality="mr", split="val")
@@ -194,10 +246,9 @@ def main():
     out_path = args.results_dir / "baseline_consistency_results.json"
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with open(out_path, "w") as f:
-        json.dump(results, f, indent=2)
+        json.dump(results, f, indent=2, default=lambda x: int(x) if isinstance(x, np.integer) else float(x))
 
     # Summary
-    import numpy as np
     aos_vals = [
         s["aos"]
         for r in results

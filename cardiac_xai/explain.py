@@ -165,7 +165,12 @@ def explain_slice(
 
 def main():
     args = get_args()
-    device = torch.device(args.device if torch.cuda.is_available() else "cpu")
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
+    elif torch.backends.mps.is_available():
+        device = torch.device("mps")
+    else:
+        device = torch.device("cpu")
 
     ckpt_path = args.checkpoints_dir / "best_model.pth"
     if not ckpt_path.exists():
@@ -206,9 +211,13 @@ def main():
         )
         all_results.extend(res)
 
+        # Clear MPS cache to prevent memory accumulation slowing things down
+        if device.type == "mps":
+            torch.mps.empty_cache()
+
     out_path = args.results_dir / "consistency_results.json"
     with open(out_path, "w") as f:
-        json.dump(all_results, f, indent=2)
+        json.dump(all_results, f, indent=2, default=lambda x: int(x) if isinstance(x, np.integer) else float(x))
     print(f"\nSaved {len(all_results)} consistency results to {out_path}")
 
 

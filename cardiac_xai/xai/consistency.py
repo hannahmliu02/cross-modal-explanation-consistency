@@ -152,11 +152,18 @@ def _structure_consistency(
     ssim_score = ssim(attr_mri, attr_ct, data_range=1.0)
 
     # --- 2. AOS: IoU of binarised maps ---
-    bin_mri = (attr_mri >= threshold).astype(bool)
-    bin_ct  = (attr_ct  >= threshold).astype(bool)
-    intersection = (bin_mri & bin_ct).sum()
-    union = (bin_mri | bin_ct).sum()
-    aos = float(intersection / union) if union > 0 else 0.0
+    # threshold is a percentile (0.5 = top 50% of attribution mass)
+    # If either map is flat (all zeros), AOS is undefined — return 0.
+    if attr_mri.max() < 1e-8 or attr_ct.max() < 1e-8:
+        aos = 0.0
+    else:
+        t_mri = np.percentile(attr_mri, threshold * 100)
+        t_ct  = np.percentile(attr_ct,  threshold * 100)
+        bin_mri = (attr_mri >= t_mri).astype(bool)
+        bin_ct  = (attr_ct  >= t_ct).astype(bool)
+        intersection = (bin_mri & bin_ct).sum()
+        union = (bin_mri | bin_ct).sum()
+        aos = float(intersection / union) if union > 0 else 0.0
 
     # --- 3. Spearman within structure mask (union of both masks) ---
     union_mask = mask_mri | mask_ct
