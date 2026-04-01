@@ -9,7 +9,7 @@ for the same cardiac structure should look similar in both MRI and CT.
 **Dataset**: MM-WHS (Multi-Modality Whole Heart Segmentation), pre-processed 256×256 npz slices
 **Model**: Shared-encoder U-Net (MRI + CT trained jointly)
 **XAI methods**: GradCAM, Integrated Gradients, SmoothGrad
-**Novel metrics**: Attribution Overlap Score (AOS), Attribution Centroid Displacement (ACD)
+**Novel metrics**: Attribution Overlap Score (AOS), Trustworthiness Score (T)
 
 ---
 
@@ -31,16 +31,15 @@ Run steps in order:
 ```bash
 python train.py
 ```
-Trains the shared-encoder U-Net on mixed MRI+CT batches for 100 epochs.
+Trains the shared-encoder U-Net on mixed MRI+CT batches for up to 200 epochs with early stopping (patience=25).
 Saves the best checkpoint (by val Dice) to `models/checkpoints/best_model.pth`.
-Pass `--no-wandb` to disable Weights & Biases logging.
 
 ### 2. Evaluate
 ```bash
 python evaluate.py
 ```
 Reports per-structure Dice for CT and MRI separately.
-Target: mean Dice > 0.75 on both modalities.
+Saves results to `results/evaluation_results.json`.
 
 ### 3. Explain
 ```bash
@@ -70,8 +69,13 @@ and `results/consistency_table.tex`.
 ```bash
 python baseline_comparison.py
 ```
-Trains separate MRI and CT models and computes the same consistency metrics.
-Expected result: lower consistency than the shared-encoder model.
+Trains separate MRI-only and CT-only models (identical architecture) and computes the same consistency metrics.
+Expected result: lower consistency than the shared-encoder model, confirming that weight sharing drives cross-modal explanation consistency.
+
+```bash
+# Skip retraining if checkpoints already exist:
+python baseline_comparison.py --skip-training
+```
 
 ---
 
@@ -79,15 +83,15 @@ Expected result: lower consistency than the shared-encoder model.
 
 ```
 results/
-├── consistency_results.json       # per-slice consistency metrics
-├── statistical_analysis.json      # ANOVA, Kendall's W, T-score ranking
-├── evaluation_results.json        # per-structure Dice
-├── consistency_table.tex          # LaTeX table for report
-├── baseline_consistency_results.json
+├── consistency_results.json           # per-slice consistency metrics
+├── statistical_analysis.json          # ANOVA, Kendall's W, T-score ranking
+├── evaluation_results.json            # per-structure Dice
+├── consistency_table.tex              # LaTeX table for report
+├── baseline_consistency_results.json  # baseline comparison metrics
 └── figures/
-    ├── consistency_heatmap.png    # structures × methods AOS heatmap
-    ├── ssim_boxplot.png           # per-structure SSIM distributions
-    └── consistency_dice_*.png     # AOS vs Dice scatter plots
+    ├── consistency_heatmap.png        # structures × methods AOS heatmap
+    ├── ssim_boxplot.png               # per-structure SSIM distributions
+    └── consistency_dice_*.png         # AOS vs Dice scatter plots
 ```
 
 Attribution maps and comparison figures saved under `results/attributions/`.
@@ -111,8 +115,12 @@ Attribution maps and comparison figures saved under `results/attributions/`.
 ## Key CLI Options
 
 All scripts accept:
-- `--device cuda` / `--device cpu`
+- `--device cuda` / `--device mps` / `--device cpu`
 - `--data-pack` (override data directory, default: `data/pack/processed_data`)
 - `--checkpoints-dir`, `--results-dir` (override output paths)
 - `--epochs`, `--batch-size`, `--lr` (train/baseline only)
-- `--no-wandb` (train only)
+- `--patience` (early stopping patience, default: 25)
+
+`baseline_comparison.py` also accepts:
+- `--skip-training` (load existing baseline checkpoints instead of retraining)
+- `--methods` (attribution methods to use, default: gradcam)

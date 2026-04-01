@@ -2,8 +2,7 @@
 Training script for the shared-encoder U-Net on mixed MRI + CT slices.
 
 Usage:
-    python train.py [--epochs 100] [--batch-size 16] [--lr 1e-4]
-                    [--device cuda] [--no-wandb]
+    python train.py [--epochs 200] [--batch-size 16] [--lr 1e-4] [--device cuda]
 """
 
 import sys
