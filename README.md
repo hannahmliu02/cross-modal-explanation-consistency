@@ -1,9 +1,9 @@
 # Cross-Modal Explanation Consistency for Cardiac Segmentation
 
 Evaluates whether a cardiac segmentation model's saliency maps are consistent
-across MRI and CT — using explanation consistency as a trustworthiness metric.
+across MRI and CT. Ultimately, we are using explanation consistency as a trustworthiness metric.
 
-If a model truly learns anatomy (not modality artefacts), its attribution maps
+If a model truly learns anatomy (not modality artifacts), its attribution maps
 for the same cardiac structure should look similar in both MRI and CT.
 
 **Dataset**: MM-WHS (Multi-Modality Whole Heart Segmentation), pre-processed 256×256 npz slices
