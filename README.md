@@ -21,6 +21,8 @@ pip install -r requirements.txt
 
 Data lives at `data/pack/processed_data/` (extracted from `pack.zip`). No preprocessing needed.
 
+Make sure to input `cd cardiax_xd` before you start.
+
 ---
 
 ## Pipeline
